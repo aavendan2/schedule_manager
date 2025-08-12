@@ -1,0 +1,18 @@
+[
+  {
+    "Nivel": "100-I",
+    "Actividad": "Clases",
+    "Código": "INDG1801",
+    "Hora Inicio": "08:30:00",
+    "Hora Fin": "10:00:00",
+    "Dia": "Lunes"
+  },
+  {
+    "Nivel": "100-I",
+    "Actividad": "Clases",
+    "Código": "MATG1801",
+    "Hora Inicio": "08:30:00",
+    "Hora Fin": "11:00:00",
+    "Dia": "Martes"
+  }
+]

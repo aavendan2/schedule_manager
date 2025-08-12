@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Horario dinámico</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    /* Grid del horario: 1 columna para horas + 4 para días (L a J) */
+    #scheduleGrid {
+      display: grid;
+      grid-template-columns: 100px repeat(4, minmax(140px, 1fr));
+      /* filas: cada 30 min entre 7:00 y 15:30 => 18 filas */
+      grid-auto-rows: 40px; /* alto de cada bloque de 30 min */
+      position: relative;
+    }
+    .time-cell { font-variant-numeric: tabular-nums; }
+    .event {
+      position: absolute;
+      padding: 6px 8px;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,.12);
+      color: #111827;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      font-weight: 600;
+    }
+    .grid-overlay { pointer-events: none; }
+    .grid-line { border-bottom: 1px dashed rgba(0,0,0,.08); }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-900">
+  <div class="max-w-6xl mx-auto p-6 space-y-6">
+    <header class="flex flex-col md:flex-row md:items-end md:justify-between gap-4">
+      <div>
+        <h1 class="text-2xl font-bold">Horario dinámico</h1>
+        <p class="text-sm text-gray-600">Selecciona nivel y actividad, carga/edita tu JSON y pinta el horario.</p>
+      </div>
+      <div class="flex flex-wrap gap-3">
+        <div>
+          <label class="block text-xs font-semibold">Nivel</label>
+          <select id="nivelSelect" class="border rounded-lg px-3 py-2 bg-white">
+            <option value="100 - I">100 - I</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-semibold">Actividad</label>
+          <select id="actividadSelect" class="border rounded-lg px-3 py-2 bg-white">
+            <option value="Clases">Clases</option>
+          </select>
+        </div>
+        <div class="flex items-end gap-2">
+          <label for="fileInput" class="cursor-pointer inline-flex items-center gap-2 border rounded-lg px-3 py-2 bg-white hover:bg-gray-50">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            Cargar JSON
+          </label>
+          <input id="fileInput" type="file" accept="application/json" class="hidden" />
+          <button id="dibujarBtn" class="border rounded-lg px-3 py-2 bg-black text-white hover:opacity-90">Dibujar horario</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- Editor JSON -->
+    <details open class="bg-white rounded-2xl shadow-sm border">
+      <summary class="cursor-pointer px-4 py-3 font-semibold">Fuente de datos (JSON)</summary>
+      <div class="p-4 space-y-3">
+        <p class="text-sm text-gray-600">Formato mínimo soportado (como el del ejemplo adjunto):
+          <code>[{ "codigo": "INDG1801", "hora_inicio": "08:30:00", "hora_fin": "10:00:00" }, ...]</code>
+        </p>
+        <p class="text-sm text-gray-600">Para ubicar automáticamente por día/nivel/actividad, también puedes usar el formato extendido por ítem (opcional):
+          <code>{ "dia": "Lunes|Martes|Miércoles|Jueves|Viernes", "nivel": "100 - I", "actividad": "Clases" }</code>.
+        </p>
+        <textarea id="jsonInput" rows="8" class="w-full font-mono text-sm border rounded-lg p-3">
+[
+  { "codigo": "INDG1801", "hora_inicio": "08:30:00", "hora_fin": "10:00:00", "dia": "Lunes", "nivel": "100 - I", "actividad": "Clases" },
+  { "codigo": "MATG1801", "hora_inicio": "08:30:00", "hora_fin": "11:00:00", "dia": "Martes", "nivel": "100 - I", "actividad": "Clases" },
+  { "codigo": "CCPG1803", "hora_inicio": "11:00:00", "hora_fin": "13:00:00", "dia": "Miércoles", "nivel": "100 - I", "actividad": "Clases" },
+  { "codigo": "MATG1803", "hora_inicio": "13:00:00", "hora_fin": "15:00:00", "dia": "Jueves", "nivel": "100 - I", "actividad": "Clases" }
+]
+        </textarea>
+        <div class="text-xs text-gray-500">Si el JSON no incluye <em>dia</em>, podrás asignarlo en la sección "Asignación de días" más abajo.</div>
+      </div>
+    </details>
+
+    <!-- Asignación de días si faltan -->
+    <details id="asignacionPanel" class="bg-white rounded-2xl shadow-sm border" open>
+      <summary class="cursor-pointer px-4 py-3 font-semibold">Asignación de días</summary>
+      <div id="asignacionWrap" class="p-4 grid md:grid-cols-2 xl:grid-cols-3 gap-3 text-sm"></div>
+    </details>
+
+    <!-- Encabezado nivel/actividad -->
+    <div class="bg-white rounded-2xl shadow-sm border p-4">
+      <div class="flex items-center justify-center gap-6">
+        <div class="text-center">
+          <div class="text-xs text-gray-500">Nivel</div>
+          <div id="nivelHeader" class="text-lg font-semibold">100 - I</div>
+        </div>
+        <div class="text-center">
+          <div class="text-xs text-gray-500">Actividad</div>
+          <div id="actividadHeader" class="text-lg font-semibold">Clases</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Horario -->
+    <div class="bg-white rounded-2xl shadow-sm border overflow-hidden">
+      <!-- Encabezados -->
+      <div class="grid grid-cols-5 bg-gray-100 border-b text-sm">
+        <div class="px-3 py-2 border-r text-center">Hora</div>
+        <div class="px-3 py-2 border-r text-center">Lunes</div>
+        <div class="px-3 py-2 border-r text-center">Martes</div>
+        <div class="px-3 py-2 border-r text-center">Miércoles</div>
+        <div class="px-3 py-2 border-r text-center">Jueves</div>
+        <div class="px-3 py-2 border-r text-center">Viernes</div>
+      </div>
+      <div id="scheduleWrap" class="relative">
+        <div id="scheduleGrid" class="relative"></div>
+        <!-- Capa para líneas de grilla -->
+        <div id="gridOverlay" class="grid-overlay absolute inset-0"></div>
+      </div>
+    </div>
+
+    <footer class="text-xs text-gray-500 text-center">Hecho con 💛 por tu asistente — funciona offline, todo en un archivo.</footer>
+  </div>
+
+  <script>
+    // =================== Configuración base ===================
+    const DAYS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]; // columnas visibles
+    const START_TIME = "07:00"; // inicio del horario
+    const END_TIME   = "23:30"; // fin del horario (no inclusivo para grid-lines)
+    const SLOT_MINUTES = 30;     // tamaño de cada fila (minutos)
+
+    const nivelSelect = document.getElementById('nivelSelect');
+    const actividadSelect = document.getElementById('actividadSelect');
+    const nivelHeader = document.getElementById('nivelHeader');
+    const actividadHeader = document.getElementById('actividadHeader');
+
+    nivelSelect.addEventListener('change', () => nivelHeader.textContent = nivelSelect.value);
+    actividadSelect.addEventListener('change', () => actividadHeader.textContent = actividadSelect.value);
+
+    // =================== Utilidades de tiempo ===================
+    const toMinutes = (hhmm) => {
+      // hh:mm o hh:mm:ss
+      const [h, m] = hhmm.split(':').map(n => parseInt(n, 10));
+      return h * 60 + (m || 0);
+    };
+
+    const fmt = (mins) => {
+      const h = Math.floor(mins / 60);
+      const m = mins % 60;
+      return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+    };
+
+    // =================== Grilla de horario ===================
+    const scheduleGrid = document.getElementById('scheduleGrid');
+    const gridOverlay = document.getElementById('gridOverlay');
+
+    function buildGrid() {
+      scheduleGrid.innerHTML = '';
+      gridOverlay.innerHTML = '';
+
+      const start = toMinutes(START_TIME);
+      const end = toMinutes(END_TIME);
+      const rows = Math.ceil((end - start) / SLOT_MINUTES);
+
+      // Estructura invisible: usamos absolute para eventos, pero colocamos celdas para referencia/lectura de pantalla
+      // Primera columna: horas (inicio/fin)
+      for (let r = 0; r < rows; r++) {
+        const rowStart = start + r * SLOT_MINUTES;
+        const rowEnd = rowStart + SLOT_MINUTES;
+        const timeCell = document.createElement('div');
+        timeCell.className = 'time-cell border-r px-3 py-2 text-sm';
+        timeCell.style.gridColumn = '1 / 2';
+        timeCell.style.gridRow = `${r + 1} / ${r + 2}`;
+        timeCell.textContent = `${fmt(rowStart)} – ${fmt(rowEnd)}`;
+        scheduleGrid.appendChild(timeCell);
+
+        // Columnas de días vacías (sólo por accesibilidad/lectura)
+        for (let c = 0; c < DAYS.length; c++) {
+          const dayCell = document.createElement('div');
+          dayCell.className = 'border-r';
+          // grid-column: 2..5
+          dayCell.style.gridColumn = `${2 + c} / ${3 + c}`;
+          dayCell.style.gridRow = `${r + 1} / ${r + 2}`;
+          scheduleGrid.appendChild(dayCell);
+        }
+
+        // Línea de rejilla
+        const line = document.createElement('div');
+        line.className = 'grid-line';
+        line.style.position = 'absolute';
+        line.style.left = '0';
+        line.style.right = '0';
+        line.style.height = '1px';
+        line.style.top = `${r * 40 + 40}px`; // 40px por fila; +40 para saltar encabezados internos
+        gridOverlay.appendChild(line);
+      }
+
+      // Altura total para posicionamiento absoluto (rows * 40px)
+      scheduleGrid.style.height = `${rows * 40}px`;
+      gridOverlay.style.height = `${rows * 40}px`;
+    }
+
+    // =================== Render de eventos ===================
+    function hexFromString(str) {
+      // color estable por código
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) hash = str.charCodeAt(i) + ((hash << 5) - hash);
+      const c = (hash & 0x00ffffff).toString(16).toUpperCase();
+      return '#' + '00000'.substring(0, 6 - c.length) + c;
+    }
+
+    function placeEvent(item, day, container) {
+      const start = toMinutes(START_TIME);
+      const y0 = (toMinutes(item.hora_inicio.slice(0,5)) - start) / SLOT_MINUTES * 40;
+      const y1 = (toMinutes(item.hora_fin.slice(0,5)) - start) / SLOT_MINUTES * 40;
+      const height = Math.max(40, y1 - y0); // mínimo 1 fila
+
+      const colIndex = DAYS.indexOf(day);
+      if (colIndex === -1) return;
+
+      const x = 100 + colIndex * (container.clientWidth - 100) / DAYS.length; // aprox, depende de ancho real
+
+      const ev = document.createElement('div');
+      ev.className = 'event';
+      ev.textContent = item.codigo;
+      ev.style.background = hexFromString(item.codigo + day + (item.nivel||''));
+      ev.style.top = `${y0}px`;
+      // Calcular ancho por columna
+      const gridRect = container.getBoundingClientRect();
+      const colWidth = (gridRect.width - 100) / DAYS.length;
+      ev.style.left = `${100 + colIndex * colWidth + 6}px`;
+      ev.style.width = `${colWidth - 12}px`;
+      ev.style.height = `${height - 6}px`;
+      container.appendChild(ev);
+    }
+
+    function clearEvents() {
+      // elimina elementos .event
+      document.querySelectorAll('.event').forEach(el => el.remove());
+    }
+
+    // =================== Asignación dinámica de días ===================
+    const asignacionWrap = document.getElementById('asignacionWrap');
+    const asignacionPanel = document.getElementById('asignacionPanel');
+
+    function buildAsignacion(items) {
+      asignacionWrap.innerHTML = '';
+      const needsMapping = items.some(it => !it.dia);
+      asignacionPanel.open = needsMapping;
+
+      items.forEach((it, idx) => {
+        const row = document.createElement('div');
+        row.className = 'flex items-center justify-between gap-2 border rounded-lg p-2';
+        row.innerHTML = `
+          <span class="font-mono text-xs">${it.codigo}</span>
+          <select data-idx="${idx}" class="border rounded px-2 py-1">
+            <option value="">${it.dia ? it.dia : '— seleccionar día —'}</option>
+            ${DAYS.map(d => `<option ${it.dia===d ? 'selected' : ''} value="${d}">${d}</option>`).join('')}
+          </select>
+        `;
+        asignacionWrap.appendChild(row);
+      });
+
+      asignacionWrap.querySelectorAll('select').forEach(sel => {
+        sel.addEventListener('change', (e) => {
+          const idx = parseInt(e.target.getAttribute('data-idx'), 10);
+          loadedItems[idx].dia = e.target.value || null;
+        });
+      });
+    }
+
+    // =================== Carga/lectura de JSON ===================
+    let loadedItems = [];
+
+    function parseJSON() {
+      try {
+        const data = JSON.parse(document.getElementById('jsonInput').value.trim());
+        if (!Array.isArray(data)) throw new Error('El JSON debe ser un arreglo');
+        // Normalizar horas con cero a la izquierda
+        data.forEach(d => {
+          if (typeof d.hora_inicio === 'string') d.hora_inicio = d.hora_inicio.length === 8 ? d.hora_inicio : (d.hora_inicio.length === 5 ? d.hora_inicio + ':00' : d.hora_inicio);
+          if (typeof d.hora_fin === 'string') d.hora_fin = d.hora_fin.length === 8 ? d.hora_fin : (d.hora_fin.length === 5 ? d.hora_fin + ':00' : d.hora_fin);
+        });
+        return data;
+      } catch (e) {
+        alert('JSON inválido: ' + e.message);
+        return [];
+      }
+    }
+
+    document.getElementById('fileInput').addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        document.getElementById('jsonInput').value = reader.result;
+      };
+      reader.readAsText(file);
+    });
+
+    // =================== Lógica principal de render ===================
+    function draw() {
+      const data = parseJSON();
+      if (!data.length) return;
+
+      // Establecer selects desde datos extendidos si existen
+      const niveles = Array.from(new Set(data.map(d => d.nivel).filter(Boolean)));
+      const actividades = Array.from(new Set(data.map(d => d.actividad).filter(Boolean)));
+      if (niveles.length) {
+        nivelSelect.innerHTML = niveles.map(n => `<option>${n}</option>`).join('');
+        nivelHeader.textContent = nivelSelect.value;
+      }
+      if (actividades.length) {
+        actividadSelect.innerHTML = actividades.map(a => `<option>${a}</option>`).join('');
+        actividadHeader.textContent = actividadSelect.value;
+      }
+
+      loadedItems = data;
+      buildAsignacion(loadedItems);
+
+      // Filtrar por nivel/actividad si están en datos
+      const nivel = nivelSelect.value;
+      const actividad = actividadSelect.value;
+      const filtered = data.filter(d => (!d.nivel || d.nivel === nivel) && (!d.actividad || d.actividad === actividad));
+
+      clearEvents();
+      // Necesitamos la grilla construida antes de medir widths
+      buildGrid();
+
+      // Si faltan días, no pintamos hasta que el usuario los asigne
+      const missing = filtered.some(it => !it.dia);
+      if (missing) {
+        // Sólo construir la grilla; el usuario completará la asignación
+        return;
+      }
+
+      // Pintar
+      filtered.forEach(it => placeEvent(it, it.dia, scheduleGrid));
+    }
+
+    document.getElementById('dibujarBtn').addEventListener('click', draw);
+
+    // Inicializar
+    buildGrid();
+    draw();
+
+    // Redibujar al cambiar tamaño (para ajustar ancho de columnas absolutas)
+    window.addEventListener('resize', () => {
+      const data = loadedItems.filter(it => it.dia); // sólo los que ya tienen día
+      buildGrid();
+      clearEvents();
+      data.forEach(it => placeEvent(it, it.dia, scheduleGrid));
+    });
+  </script>
+</body>
+</html>

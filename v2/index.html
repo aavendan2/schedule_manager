@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Horario dinámico desde JSON</title>
+  <style>
+    :root {
+      --hours-start: 7;
+      /* hora mínima mostrada (entera, 24h) */
+      --hours-end: 24;
+      /* hora máxima mostrada (entera, 24h) */
+      --slot-mins: 30;
+      /* alto de cada ranura en minutos */
+      --px-per-30m: 24;
+      /* alto visual por 30 minutos */
+      --grid-gap: 6px;
+      /* separación vertical */
+      --col-gap: 8px;
+      /* separación entre columnas de días */
+      --border: #d1d5db;
+      --bg: #ffffff;
+      --ink: #111827;
+      --muted: #6b7280;
+      --accent: #2563eb;
+      --head: #f9fafb;
+    }
+
+    * {
+      box-sizing: border-box
+    }
+
+    html,
+    body {
+      height: 100%;
+    }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Noto Sans, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      color: var(--ink);
+      background: var(--bg)
+    }
+
+    header {
+      padding: 12px 16px;
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      background: linear-gradient(#ffffffcc, #ffffffcc);
+      backdrop-filter: blur(6px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700
+    }
+
+    header .sub {
+      color: var(--muted);
+      font-size: 13px
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center
+    }
+
+    .toolbar input[type="file"],
+    .toolbar button,
+    .toolbar select {
+      font: inherit;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    .toolbar button.primary {
+      background: var(--accent);
+      color: #fff;
+      border-color: transparent
+    }
+
+    .toolbar .hint {
+      color: var(--muted);
+      font-size: 12px
+    }
+
+    details textarea {
+      width: 100%;
+      min-height: 120px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px
+    }
+
+    .schedule-wrapper {
+      padding: 14px 16px 32px;
+      overflow: auto
+    }
+
+    .schedule {
+      display: grid;
+      grid-template-columns: 70px 1fr;
+      gap: var(--col-gap);
+      align-items: start;
+    }
+
+    .days {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(180px, 1fr));
+      gap: var(--col-gap);
+    }
+
+    .day-col {
+      position: relative;
+      border-left: 1px solid var(--border);
+      padding-left: 4px;
+    }
+
+    .day-title {
+      position: sticky;
+      top: 52px;
+      background: var(--head);
+      padding: 6px 8px;
+      border: 1px solid var(--border);
+      border-left: 0;
+      border-radius: 0 8px 8px 0;
+      font-weight: 600
+    }
+
+    /* time rail */
+    .time-col {
+      position: relative
+    }
+
+    .time-slot {
+      height: calc(var(--px-per-30m) * 1px);
+      border-top: 1px dashed #e5e7eb;
+      color: var(--muted);
+      font-size: 11px;
+      display: flex;
+      align-items: flex-start;
+    }
+
+    .time-slot strong {
+      display: block;
+      transform: translateY(-6px)
+    }
+
+    /* day grid background */
+    .row-bg {
+      position: absolute;
+      left: 0;
+      right: 0;
+      pointer-events: none
+    }
+
+    .row-bg .r {
+      height: calc(var(--px-per-30m) * 1px);
+      border-top: 1px dashed #f1f5f9
+    }
+
+    /* event card */
+    .event {
+      position: absolute;
+      left: 0;
+      right: 0;
+      padding: 6px 8px;
+      border-radius: 10px;
+      border-left: 4px solid transparent;
+      background: #eef2ff;
+      color: #111827;
+      box-shadow: 0 1px 0 rgba(0, 0, 0, .06), 0 8px 16px -12px rgba(0, 0, 0, .25);
+      overflow: hidden
+    }
+
+    .event .code {
+      font-weight: 700;
+      font-size: 13px
+    }
+
+    .event .meta {
+      font-size: 11px;
+      color: #1f2937;
+      opacity: .8
+    }
+
+    .legend {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 8px 0
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 12px
+    }
+
+    .swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      border: 1px solid #0001
+    }
+
+    /* print */
+    @media print {
+
+      header,
+      .controls,
+      details {
+        display: none
+      }
+
+      .schedule-wrapper {
+        padding: 0
+      }
+
+      .schedule {
+        grid-template-columns: 60px 1fr
+      }
+
+      .days {
+        grid-template-columns: repeat(5, 1fr)
+      }
+
+      :root {
+        --px-per-30m: 18;
+      }
+    }
+
+    /* Mine */
+    .time-col .time-slot:nth-child(-n+2) {
+      visibility: hidden;
+    }
+
+    
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1 id="title">Gestor de Horario
+      <!-- • <span class="sub">cargue un JSON para comenzar</span> -->
+    </h1>
+    <div style="margin-top:8px"><button id="loadSample">Cargar ejemplo</button></div>
+  </header>
+
+  <section class="controls">
+    <div class="toolbar">
+      
+      <input type="file" id="file" accept="application/json" />    
+      <!-- <label style="margin-left:auto; font-size:12px; color:var(--muted)">Rango horario
+        <select id="range">
+          <option value="7-17">07:00 – 17:00</option>
+          <option value="7-19">07:00 – 19:00</option>
+          <option value="8-18">08:00 – 18:00</option>
+        </select>
+      </label> -->
+    </div>
+    <details>
+      <summary><strong>¿Cómo debe ser el JSON?</strong> (clic para ver)</summary>
+      <p>
+        Formato esperado: arreglo de objetos con <code>Nivel</code>, <code>Actividad</code>, <code>Código</code>,
+        <code>Hora Inicio</code>, <code>Hora Fin</code> y <code>Dia</code> (nombre o índice). Si no incluye
+        <code>Dia</code>, puede definirse un <em>mapeo</em> por código.</p>
+      <textarea id="jsonArea"></textarea>
+      <div class="hint">Puede pegar aquí su JSON y presionar <em>Renderizar</em>, o usar el botón "Cargar ejemplo"
+        .</div>
+      
+      <div style="margin-top:8px"><button id="renderFromText">Renderizar</button></div>
+    </details>
+  </section>
+
+  <div class="schedule-wrapper">
+    <div class="legend" id="legend"></div>
+    <div class="day-name" id="day-name"></div>
+    <div id="schedule" class="schedule" aria-live="polite"></div>
+  </div>
+
+  <script>
+    // ==================== Utilidades ====================
+    const DAYS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"];
+
+    // Hash simple para color estable por código
+    function hashCode(str) { let h = 0; for (let i = 0; i < str.length; i++) { h = ((h << 5) - h) + str.charCodeAt(i); h |= 0; } return Math.abs(h); }
+    function colorFor(code) {
+      const h = hashCode(code) % 360;
+      return { bg: `hsl(${h} 100% 88%)`, border: `hsl(${h} 85% 45%)` };
+    }
+
+    // Parse HH:MM:SS => minutos desde 00:00
+    function toMinutes(t) {
+      if (typeof t !== "string") return 0;
+      const [hh, mm, ss] = t.split(":").map(Number);
+      return (hh * 60 + (mm || 0) + (ss ? 0 : 0));
+    }
+
+    function fmtRange(mins) {
+      const h = Math.floor(mins / 60), m = mins % 60; return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+    }
+
+    // Lee archivo
+    document.getElementById('file').addEventListener('change', e => {
+      const f = e.target.files[0]; if (!f) return;
+      f.text().then(txt => {
+        document.getElementById('jsonArea').value = txt.trim();
+        try { const data = JSON.parse(txt); render(data); } catch (err) { alert('JSON inválido: ' + err.message) }
+      })
+    });
+
+    // Rango horario selector
+    /*document.getElementById('range').addEventListener('change', (e)=>{
+      const [a,b]=e.target.value.split('-').map(Number);
+      document.documentElement.style.setProperty('--hours-start', a);
+      document.documentElement.style.setProperty('--hours-end', b);
+      if(window.__lastData) render(window.__lastData); // re-pintar
+    });*/
+
+    // Ejemplo embebido (con mapeo de días por código)
+    const SAMPLE = [
+      { "Nivel": "100-I", "Actividad": "Clases", "Código": "INDG1801", "Hora Inicio": "08:30:00", "Hora Fin": "10:00:00", "Dia": "Lunes" },
+      { "Nivel": "100-I", "Actividad": "Clases", "Código": "MATG1801", "Hora Inicio": "08:30:00", "Hora Fin": "11:00:00", "Dia": "Martes" },
+      { "Nivel": "100-I", "Actividad": "Clases", "Código": "MATG1802", "Hora Inicio": "10:30:00", "Hora Fin": "13:00:00", "Dia": "Martes" },
+      { "Nivel": "100-I", "Actividad": "Clases", "Código": "CCPG1803", "Hora Inicio": "11:00:00", "Hora Fin": "13:00:00", "Dia": "Miércoles" },
+      { "Nivel": "100-I", "Actividad": "Clases", "Código": "CCPG1805", "Hora Inicio": "08:30:00", "Hora Fin": "10:30:00", "Dia": "Miércoles" },
+      { "Nivel": "100-I", "Actividad": "Clases", "Código": "MATG1803", "Hora Inicio": "13:00:00", "Hora Fin": "15:00:00", "Dia": "Jueves" },
+      { "Nivel": "100-I", "Actividad": "Clases", "Código": "MATG1858", "Hora Inicio": "09:00:00", "Hora Fin": "11:00:00", "Dia": "Viernes" }
+    ];
+
+    document.getElementById('jsonArea').value = JSON.stringify(SAMPLE, null, 2);
+    document.getElementById('loadSample').addEventListener('click', () => render(SAMPLE));
+    document.getElementById('renderFromText').addEventListener('click', () => {
+      try { render(JSON.parse(document.getElementById('jsonArea').value)); } catch (e) { alert('JSON inválido: ' + e.message) }
+    });
+
+    // ==================== Renderizador ====================
+    function render(items) {
+      if (!Array.isArray(items) || items.length === 0) { alert('El JSON debe ser un arreglo con objetos.'); return; }
+      window.__lastData = items;
+
+      // Encabezado (Nivel/Actividad)
+      // const titulo = (()=>{
+      //   const n = items[0]?.['Nivel']||''; const a = items[0]?.['Actividad']||''; return [n,a].filter(Boolean).join(' • ');
+      // })();
+      // const titleEl = document.getElementById('title');
+      // titleEl.textContent = titulo? `Horario • ${titulo}` : 'Horario';
+
+      // Normalizar y agrupar por día
+      const startHour = +getComputedStyle(document.documentElement).getPropertyValue('--hours-start');
+      const endHour = +getComputedStyle(document.documentElement).getPropertyValue('--hours-end');
+      const dayGroups = new Map(DAYS.map(d => [d, []]));
+
+      // Si el objeto no trae Dia, intente inferir por un mapa configurable aquí:
+      const FALLBACK_DAY_BY_CODE = {
+        // Ejemplo: 'INDG1801':'Lunes', 'MATG1801':'Martes'
+      };
+
+      for (const raw of items) {
+        const dName = normalizeDay(raw['Dia'] || FALLBACK_DAY_BY_CODE[raw['Código']] || 'Lunes');
+        const start = toMinutes(raw['Hora Inicio']);
+        const end = toMinutes(raw['Hora Fin']);
+        if (!DAYS.includes(dName)) continue;
+        dayGroups.get(dName).push({
+          code: String(raw['Código'] || '—'),
+          start, end,
+          startStr: raw['Hora Inicio'],
+          endStr: raw['Hora Fin']
+        });
+      }
+
+      // Construir HTML base
+      const sched = document.getElementById('schedule');
+      sched.innerHTML = '';
+
+      // Columna de horarios
+      const timeCol = document.createElement('div');
+      timeCol.className = 'time-col';
+      const totalMins = (endHour - startHour) * 60;
+      const slots = totalMins / 30; // 30-min
+      for (let i = 0; i <= slots; i++) {
+        const t = startHour * 60 + i * 30;
+        const slot = document.createElement('div');
+        slot.className = 'time-slot';
+        if (t % 60 === 0) {
+          slot.innerHTML = `<strong>${String(Math.floor(t / 60)).padStart(2, '0')}:00</strong>`;
+        }
+        timeCol.appendChild(slot);
+      }
+      sched.appendChild(timeCol);
+
+      // Contenedor de días
+      const daysWrap = document.createElement('div');
+      daysWrap.className = 'days';
+
+      // Para leyenda de colores
+      const legend = document.getElementById('legend'); legend.innerHTML = '';
+      const seenCodes = new Set();
+
+      // Construir cada día
+      for (const day of DAYS) {
+        const col = document.createElement('div'); col.className = 'day-col';
+        const title = document.createElement('div'); title.className = 'day-title'; title.textContent = day; col.appendChild(title);
+
+        // Fila de fondo
+        const bg = document.createElement('div'); bg.className = 'row-bg';
+        bg.style.top = '0px'; bg.style.bottom = '0px';
+        for (let i = 0; i <= slots; i++) { const r = document.createElement('div'); r.className = 'r'; bg.appendChild(r); }
+        col.appendChild(bg);
+
+        // Eventos del día, layout en columnas sin solaparse
+        const events = (dayGroups.get(day) || []).slice().sort((a, b) => a.start - b.start);
+        const tracks = layoutTracks(events);
+        const pxPerMin = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--px-per-30m')) / 30;
+
+        tracks.forEach(track => {
+          const trackWidth = 100 / tracks.length; // porcentaje
+          track.forEach(ev => {
+            const y = (ev.start - startHour * 60) * pxPerMin;
+            const h = Math.max(16, (ev.end - ev.start) * pxPerMin - 2);
+            const card = document.createElement('div'); card.className = 'event';
+            const { bg: borderBg, border: borderClr } = colorFor(ev.code);
+            card.style.background = borderBg; card.style.borderLeftColor = borderClr;
+            card.style.top = y + "px"; card.style.height = h + "px";
+            card.style.width = `calc(${trackWidth}% - 4px)`;
+            card.style.left = `calc(${track.index * trackWidth}% + 2px)`;
+            card.innerHTML = `<div class="code">${ev.code}</div><div class="meta">${fmtRange(ev.start)} – ${fmtRange(ev.end)}</div>`;
+            col.appendChild(card);
+
+            if (!seenCodes.has(ev.code)) {
+              seenCodes.add(ev.code);
+              const { bg, border } = colorFor(ev.code);
+              const chip = document.createElement('span'); chip.className = 'chip';
+              chip.innerHTML = `<span class="swatch" style="background:${bg}; border-color:${border}"></span>${ev.code}`;
+              legend.appendChild(chip);
+            }
+          })
+        })
+
+        daysWrap.appendChild(col);
+      }
+
+      sched.appendChild(daysWrap);
+    }
+
+    // Normaliza nombre de día
+    function normalizeDay(d) {
+      if (!d) return 'Lunes';
+      const dd = String(d).trim().toLowerCase();
+      const map = { '1': 'lunes', '2': 'martes', '3': 'miércoles', 'miercoles': 'miércoles', '4': 'jueves', '5': 'viernes', 'lun': 'lunes', 'mar': 'martes', 'mié': 'miércoles', 'mie': 'miércoles', 'jue': 'jueves', 'vie': 'viernes' };
+      const out = map[dd] || dd;
+      const titled = out.charAt(0).toUpperCase() + out.slice(1);
+      return DAYS.includes(titled) ? titled : 'Lunes';
+    }
+
+    // Distribuye eventos en "tracks" evitando solapes (similar a layout de calendarios)
+    function layoutTracks(events) {
+      const tracks = []; // cada track es un arreglo de eventos con índice de columna
+      events.forEach(ev => {
+        // buscar un track libre (sin solape con su último evento)
+        let placed = false;
+        for (let ti = 0; ti < tracks.length; ti++) {
+          const last = tracks[ti][tracks[ti].length - 1];
+          if (!last || last.end <= ev.start) {
+            ev.track = ti; placed = true; tracks[ti].push(ev); break;
+          }
+        }
+        if (!placed) { ev.track = tracks.length; tracks.push([ev]); }
+      });
+      // anotar índice en cada track para usar en estilo
+      tracks.forEach((t, i) => t.index = i);
+      return tracks;
+    }
+
+    // Render inicial (ejemplo)
+    render(SAMPLE);
+  </script>
+</body>
+
+</html>

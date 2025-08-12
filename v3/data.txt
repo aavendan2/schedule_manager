@@ -1,0 +1,3 @@
+Nivel,Actividad,Código,Hora Inicio,Hora Fin,Dia
+100-I,Clases,MATG1803,13:00:00,15:00:00,Jueves
+100-I,Clases,MATG1858,09:00:00,11:00:00,Viernes

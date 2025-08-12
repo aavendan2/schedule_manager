@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Horario dinámico desde texto</title>
+  <style>
+    :root {
+      --hours-start: 7;
+      /* hora mínima mostrada (entera, 24h) */
+      --hours-end: 24;
+      /* hora máxima mostrada (entera, 24h) */
+      --slot-mins: 30;
+      /* alto de cada ranura en minutos */
+      --px-per-30m: 24;
+      /* alto visual por 30 minutos */
+      --grid-gap: 6px;
+      /* separación vertical */
+      --col-gap: 8px;
+      /* separación entre columnas de días */
+      --border: #d1d5db;
+      --bg: #ffffff;
+      --ink: #111827;
+      --muted: #6b7280;
+      --accent: #2563eb;
+      --head: #f9fafb;
+    }
+
+    * {
+      box-sizing: border-box
+    }
+
+    html,
+    body {
+      height: 100%;
+    }
+
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Noto Sans, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      color: var(--ink);
+      background: var(--bg)
+    }
+
+    header {
+      padding: 12px 16px;
+      position: sticky;
+      top: 0;
+      z-index: 5;
+      background: linear-gradient(#ffffffcc, #ffffffcc);
+      backdrop-filter: blur(6px);
+      border-bottom: 1px solid var(--border);
+    }
+
+    header h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700
+    }
+
+    header .sub {
+      color: var(--muted);
+      font-size: 13px
+    }
+
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center
+    }
+
+    .toolbar input[type="file"],
+    .toolbar button,
+    .toolbar select {
+      font: inherit;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #fff;
+      cursor: pointer;
+    }
+
+    .toolbar button.primary {
+      background: var(--accent);
+      color: #fff;
+      border-color: transparent
+    }
+
+    .toolbar .hint {
+      color: var(--muted);
+      font-size: 12px
+    }
+
+    details textarea {
+      width: 100%;
+      min-height: 140px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      font-size: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px
+    }
+
+    .schedule-wrapper {
+      padding: 14px 16px 32px;
+      overflow: auto
+    }
+
+    .schedule {
+      display: grid;
+      grid-template-columns: 70px 1fr;
+      gap: var(--col-gap);
+      align-items: start;
+    }
+
+    .days {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(180px, 1fr));
+      gap: var(--col-gap);
+    }
+
+    .day-col {
+      position: relative;
+      /* border-left: 1px solid var(--border); */
+      /* padding-left: 4px; */
+    }
+
+    .day-title {
+      position: sticky;
+      top: 52px;
+      background: var(--head);
+      padding: 6px 8px;
+      border: 1px solid var(--border);
+      /* border-left: 0; */
+      border-radius: 8px;
+      font-weight: 600
+    }
+
+    /* time rail */
+    .time-col {
+      position: relative
+    }
+
+    .time-slot {
+      height: calc(var(--px-per-30m) * 1px);
+      border-top: 1px dashed #e5e7eb;
+      color: var(--muted);
+      font-size: 11px;
+      display: flex;
+      align-items: flex-start;
+    }
+
+    .time-slot strong {
+      display: block;
+      transform: translateY(-9px)
+    }
+
+    /* day grid background */
+    .row-bg {
+      position: absolute;
+      left: 0;
+      right: 0;
+      pointer-events: none;
+      top: 0;
+    }
+
+    .row-bg .r {
+      height: calc(var(--px-per-30m) * 1px);
+      border-top: 1px dashed #b7bbbe
+    }
+
+    /* event card */
+    .event {
+      position: absolute;
+      left: 0;
+      right: 0;
+      padding: 6px 8px;
+      border-radius: 10px;
+      border-left: 4px solid transparent;
+      background: #eef2ff;
+      color: #111827;
+      box-shadow: 0 1px 0 rgba(0, 0, 0, .06), 0 8px 16px -12px rgba(0, 0, 0, .25);
+      overflow: hidden
+    }
+
+    .event .code {
+      font-weight: 700;
+      font-size: 13px
+    }
+
+    .event .meta {
+      font-size: 11px;
+      color: #1f2937;
+      opacity: .8
+    }
+
+    .event .italic {
+      font-style: italic;
+      font-weight: 400;
+    }
+
+    .legend {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 8px 0
+    }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      font-size: 12px
+    }
+
+    .swatch {
+      width: 10px;
+      height: 10px;
+      border-radius: 2px;
+      border: 1px solid #0001
+    }
+
+    /* print */
+    @media print {
+
+      header,
+      .controls,
+      details {
+        display: none
+      }
+
+      .schedule-wrapper {
+        padding: 0
+      }
+
+      .schedule {
+        grid-template-columns: 60px 1fr
+      }
+
+      .days {
+        grid-template-columns: repeat(5, 1fr)
+      }
+
+      :root {
+        --px-per-30m: 18;
+      }
+    }
+
+    /* extra */
+    .time-col .time-slot:nth-child(-n+2),
+    .row-bg .r:nth-child(-n+2) {
+      visibility: hidden;
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1 id="title">Gestor de Horario (desde texto)</h1>
+    <div style="margin-top:8px"><button id="loadSample">Cargar ejemplo</button></div>
+  </header>
+
+  <section class="controls">
+    <div class="toolbar">
+      <input type="file" id="file" accept=".txt,.csv,text/plain" />
+      <span class="hint">También puede pegar el texto abajo y presionar Renderizar</span>
+      <label style="margin-left:auto; font-size:12px; color:var(--muted)">Nivel
+        <select id="level">
+          <option value="*">Todos</option>
+          <option value="100-I">100-I</option>
+          <option value="100-II">100-II</option>
+          <option value="200-I">200-I</option>
+          <option value="200-II">200-II</option>
+        </select>
+      </label>
+    </div>
+    <details>
+      <summary><strong>¿Formato del texto?</strong> (clic para ver)</summary>
+      <p>Pegue un texto con cabecera y valores separados por comas, por ejemplo:</p>
+      <pre style="white-space:pre-wrap;border:1px solid var(--border);border-radius:8px;padding:8px;background:#fafafa">
+Nivel,Actividad,Código,Hora Inicio,Hora Fin,Dia
+100-I,Clases,INDG1801,08:30:00,10:00:00,Lunes
+      </pre>
+      <textarea id="textArea"></textarea>
+      <div class="hint">Si una línea no incluye <code>Dia</code> se intentará inferir con un mapa por código
+        (configurable en JS).</div>
+      <div style="margin-top:8px"><button id="renderFromText">Renderizar</button></div>
+    </details>
+  </section>
+
+  <div class="schedule-wrapper">
+    <div class="legend" id="legend"></div>
+    <div id="schedule" class="schedule" aria-live="polite"></div>
+  </div>
+
+  <script>
+    // ==================== Utilidades ====================
+    const DAYS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"];
+
+    function hashCode(str) { let h = 0; for (let i = 0; i < str.length; i++) { h = ((h << 25) - h) + str.charCodeAt(i); h |= 0; } return Math.abs(h); }
+    function colorFor(code) {
+      const h = hashCode(code) % 360;
+      return { bg: `hsl(${h} 100% 88%)`, border: `hsl(${h} 85% 45%)` };
+    }
+
+    // Parse HH:MM:SS => minutos desde 00:00
+    function toMinutes(t) {
+      if (typeof t !== "string") return 0;
+      const [hh, mm, ss] = t.split(":").map(Number);
+      return (hh * 60 + (mm || 0) + (ss ? 0 : 0));
+    }
+    function fmtRange(mins) { const h = Math.floor(mins / 60), m = mins % 60; return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`; }
+
+    // ==================== Parser de texto CSV simple ====================
+    // Admite cabecera; separador coma; ignora líneas vacías y espacios extra.
+    // No maneja comillas con comas internas (no se solicitaron).
+    function parseCSV(text) {
+      const lines = String(text || "").trim().split(/\r?\n/).filter(l => l.trim().length > 0);
+      if (lines.length === 0) return [];
+      const header = lines[0].split(",").map(h => h.trim());
+      const idx = Object.fromEntries(header.map((h, i) => [h.toLowerCase(), i]));
+
+      function val(cols, name, def = "") {
+        const i = idx[name.toLowerCase()];
+        return (i != null && i < cols.length) ? cols[i].trim() : def;
+      }
+
+      const FALLBACK_DAY_BY_CODE = {
+        // "INDG1801": "Lunes",
+        // "MATG1801": "Martes",
+      };
+
+      const out = [];
+      for (let li = 1; li < lines.length; li++) {
+        const cols = lines[li].split(",").map(c => c.trim());
+        if (cols.length === 0) continue;
+        const obj = {
+          "Nivel": val(cols, "Nivel"),
+          "Actividad": val(cols, "Actividad"),
+          "Código": val(cols, "Código"),
+          "Hora Inicio": val(cols, "Hora Inicio"),
+          "Hora Fin": val(cols, "Hora Fin"),
+          "Dia": val(cols, "Dia", FALLBACK_DAY_BY_CODE[val(cols, "Código")] || "Lunes")
+        };
+        out.push(obj);
+      }
+      return out;
+    }
+
+    // Lee archivo de texto
+    document.getElementById('file').addEventListener('change', e => {
+      const f = e.target.files[0]; if (!f) return;
+      f.text().then(txt => {
+        document.getElementById('textArea').value = txt.trim();
+        const data = parseCSV(txt);
+        if (!data.length) { alert('No se pudieron leer filas del texto.'); return; }
+        render(data);
+      });
+    });
+
+    // Botón de ejemplo
+    const SAMPLE_TEXT = `Nivel,Actividad,Código,Hora Inicio,Hora Fin,Dia
+100-I,Clases,INDG1801,09:00:00,10:30:00,Lunes
+100-I,Clases,MATG1801,09:15:00,11:00:00,Martes
+100-II,Clases,MATG1802,09:30:00,13:00:00,Martes
+200-II,Clases,MATG1822,10:30:00,13:00:00,Martes
+100-I,Clases,CCPG1803,11:00:00,13:00:00,Miércoles
+100-II,Clases,CCPG1805,08:30:00,10:30:00,Miércoles
+200-I,Clases,MATG1803,13:00:00,15:00:00,Jueves
+200-II,Clases,MATG1858,09:00:00,11:00:00,Viernes`;
+
+    document.getElementById('textArea').value = SAMPLE_TEXT;
+    document.getElementById('loadSample').addEventListener('click', () => {
+      document.getElementById('textArea').value = SAMPLE_TEXT;
+      render(parseCSV(SAMPLE_TEXT));
+    });
+    document.getElementById('renderFromText').addEventListener('click', () => {
+      const txt = document.getElementById('textArea').value;
+      const data = parseCSV(txt);
+      if (!data.length) { alert('Texto inválido o sin filas.'); return; }
+      render(data);
+    });
+
+
+    // ==================== Filtro ====================
+    document.getElementById('level').addEventListener('change', () => {
+      if (!window.__lastData) return;
+      const selectedLevel = document.getElementById('level').value;
+
+      const txt = document.getElementById('textArea').value;
+      const data = parseCSV(txt);
+
+      let filteredData =data;
+      if (selectedLevel !== '*') {
+        filteredData = data.filter(item => String(item['Nivel']).trim() === selectedLevel);
+      }
+
+      render(filteredData);
+    });
+
+    // ==================== Renderizador ====================
+    function render(items) {
+      if (!Array.isArray(items) || items.length === 0) { alert('El texto debe tener al menos una fila de datos.'); return; }
+      window.__lastData = items;
+
+      const startHour = +getComputedStyle(document.documentElement).getPropertyValue('--hours-start');
+      const endHour = +getComputedStyle(document.documentElement).getPropertyValue('--hours-end');
+      const dayGroups = new Map(DAYS.map(d => [d, []]));
+
+      for (const raw of items) {
+        const dName = normalizeDay(raw['Dia'] || 'Lunes');
+        const start = toMinutes(raw['Hora Inicio']);
+        const end = toMinutes(raw['Hora Fin']);
+        if (!DAYS.includes(dName)) continue;
+        dayGroups.get(dName).push({
+          code: String(raw['Código'] || '—'),
+          level: String(raw['Nivel'] || '—'),
+          start, end,
+          startStr: raw['Hora Inicio'],
+          endStr: raw['Hora Fin']
+        });
+      }
+
+      const sched = document.getElementById('schedule');
+      sched.innerHTML = '';
+
+      // Columna de horarios
+      const timeCol = document.createElement('div');
+      timeCol.className = 'time-col';
+      const totalMins = (endHour - startHour) * 60;
+      const slots = totalMins / 30; // 30-min
+      for (let i = 0; i <= slots; i++) {
+        const t = startHour * 60 + i * 30;
+        const slot = document.createElement('div');
+        slot.className = 'time-slot';
+        if (t % 60 === 0) {
+          slot.innerHTML = `<strong>${String(Math.floor(t / 60)).padStart(2, '0')}:00</strong>`;
+        }
+        timeCol.appendChild(slot);
+      }
+      sched.appendChild(timeCol);
+
+      // Contenedor de días
+      const daysWrap = document.createElement('div');
+      daysWrap.className = 'days';
+
+      const legend = document.getElementById('legend'); legend.innerHTML = '';
+      const seenCodes = new Set();
+
+      for (const day of DAYS) {
+        const col = document.createElement('div'); col.className = 'day-col';
+        const title = document.createElement('div'); title.className = 'day-title'; title.textContent = day; col.appendChild(title);
+
+        const bg = document.createElement('div'); bg.className = 'row-bg';
+        const totalMinsBg = (endHour - startHour) * 60;
+        const slotsBg = totalMinsBg / 30;
+        for (let i = 0; i <= slotsBg; i++) { const r = document.createElement('div'); r.className = 'r'; bg.appendChild(r); }
+        col.appendChild(bg);
+
+        const events = (dayGroups.get(day) || []).slice().sort((a, b) => a.start - b.start);
+        const tracks = layoutTracks(events);
+        const pxPerMin = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--px-per-30m')) / 30;
+
+        tracks.forEach(track => {
+          const trackWidth = 100 / tracks.length;
+          track.forEach(ev => {
+            const y = (ev.start - startHour * 60) * pxPerMin;
+            const h = Math.max(16, (ev.end - ev.start) * pxPerMin - 2);
+            const card = document.createElement('div'); card.className = 'event';
+            const { bg: borderBg, border: borderClr } = colorFor(ev.code);
+            card.style.background = borderBg; card.style.borderLeftColor = borderClr;
+            card.style.top = y + "px"; card.style.height = h + "px";
+            card.style.width = `calc(${trackWidth}% - 4px)`;
+            card.style.left = `calc(${track.index * trackWidth}% + 2px)`;
+            card.innerHTML = `<div class="code">${ev.code}</div><div class="meta">${fmtRange(ev.start)} – ${fmtRange(ev.end)}</div><div class="meta italic">${ev.level}</div>`;
+            col.appendChild(card);
+
+            if (!seenCodes.has(ev.code)) {
+              seenCodes.add(ev.code);
+              const { bg, border } = colorFor(ev.code);
+              const chip = document.createElement('span'); chip.className = 'chip';
+              chip.innerHTML = `<span class="swatch" style="background:${bg}; border-color:${border}"></span>${ev.code}`;
+              legend.appendChild(chip);
+            }
+          })
+        })
+
+        daysWrap.appendChild(col);
+      }
+
+      sched.appendChild(daysWrap);
+    }
+
+    function normalizeDay(d) {
+      if (!d) return 'Lunes';
+      const dd = String(d).trim().toLowerCase();
+      const map = { '1': 'lunes', '2': 'martes', '3': 'miércoles', 'miercoles': 'miércoles', '4': 'jueves', '5': 'viernes', 'lun': 'lunes', 'mar': 'martes', 'mié': 'miércoles', 'mie': 'miércoles', 'jue': 'jueves', 'vie': 'viernes' };
+      const out = map[dd] || dd;
+      const titled = out.charAt(0).toUpperCase() + out.slice(1);
+      return DAYS.includes(titled) ? titled : 'Lunes';
+    }
+
+    function layoutTracks(events) {
+      const tracks = [];
+      events.forEach(ev => {
+        let placed = false;
+        for (let ti = 0; ti < tracks.length; ti++) {
+          const last = tracks[ti][tracks[ti].length - 1];
+          if (!last || last.end <= ev.start) {
+            ev.track = ti; placed = true; tracks[ti].push(ev); break;
+          }
+        }
+        if (!placed) { ev.track = tracks.length; tracks.push([ev]); }
+      });
+      tracks.forEach((t, i) => t.index = i);
+      return tracks;
+    }
+
+    // Render inicial con el ejemplo
+    render(parseCSV(SAMPLE_TEXT));
+  </script>
+</body>
+
+</html>
